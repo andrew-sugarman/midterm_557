@@ -1,0 +1,85 @@
+
+
+* save orig
+### define data
+# convert datetime column to continuous so that it can be worked with more easily, as done in the volcano sklearn example
+df['date'] = pd.to_datetime(df['date'])
+reference_date = df['date'].min()
+df['days_since_start'] = (df['date'] - reference_date).dt.days
+
+# define data
+x = df['days_since_start'].values.reshape(-1, 1)
+y = df['log_stock_price']
+
+# split into training and testing set
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+
+
+### define kernel and mean functions
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import RationalQuadratic
+from sklearn.gaussian_process.kernels import ExpSineSquared
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import WhiteKernel
+
+## CHOOSE YOUR KERNEL - WITH periodicity
+length = 100
+k1 =  50.0**2 * RBF(length)
+k2 = 0.5**2 * RationalQuadratic(length_scale=1.0, alpha=1.0)
+k3 = (
+    5.0**2
+    * RBF(length_scale=100.0)
+    * ExpSineSquared(length_scale=1.0, periodicity=1.0, periodicity_bounds="fixed")
+)
+k4 = noise_kernel = 0.1**2 * RBF(length_scale=5) + WhiteKernel(
+    noise_level=0.1**2, noise_level_bounds=(1e-5, 1e5)
+)
+# define mixed kernel
+kernel = ( k1 + k2 + k3 + k4)
+#
+
+# PLOT THE RESULTS
+#plt.figure(figsize=(10, 6))
+# plt.scatter(df['days_since_start'], df['log_stock_price'], label='Original Data', color='black', s=10)
+
+## Train model and make predictions
+y_mean = 0
+gaussian_process = GaussianProcessRegressor(kernel=kernel, normalize_y=False)
+gaussian_process.fit(X_train, y_train - y_mean)
+y_pred, y_std = gaussian_process.predict(X_test, return_std=True)
+
+mean_y_pred, std_y_pred = gaussian_process.predict(X_test, return_std=True)
+# using a mean function of 0 seems to work pretty well
+
+plt.figure(figsize=(10, 6))
+plt.scatter(X_test, y_test, color="black", s=30, marker='o', label="Actual Measurements")
+
+plt.scatter(X_test, mean_y_pred, color="tab:blue", s=30, marker='o', label="GP Mean Prediction")
+
+
+sorted_indices = np.argsort(X_test.ravel())
+X_test_sorted = X_test.ravel()[sorted_indices]
+mean_y_pred_sorted = mean_y_pred[sorted_indices]
+std_y_pred_sorted = std_y_pred[sorted_indices]
+
+plt.fill_between(
+    X_test_sorted,
+    mean_y_pred_sorted - 2*std_y_pred_sorted,
+    mean_y_pred_sorted + 2*std_y_pred_sorted,
+    color="tab:blue",
+    alpha=0.2,
+    label="Confidence Interval (2 std dev)"
+)
+
+plt.legend(fontsize=12, loc='upper left')
+
+plt.xlabel("Days Since Start (Numerically Encoded)", fontsize=14)
+plt.ylabel("Weekly Log Stock Price", fontsize=14)
+plt.title("Gaussian Process Prediction of Stock Prices", fontsize=16)
+
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.tight_layout()
+
+#
+plt.show()
